@@ -21,6 +21,10 @@ npm run build
 
 Packaging to npm is supported via `npm run build` (see [Development](#development)).
 
+## Documentation
+
+Full API documentation is auto-generated from the source and available at [tedwin007.github.io/filter-manager](https://tedwin007.github.io/filter-manager/).
+
 ## Usage
 
 ### Load filters from a file
