@@ -1,82 +1,125 @@
+# filter-manager
 
-This is one package (out of 3) in a
-[JQL](https://www.atlassian.com/blog/jira-software/jql-the-most-flexible-way-to-search-jira-14) like feature..
+A small TypeScript library for managing named validation filters at runtime. Load them from a file, a server, or memory; add, remove, and persist them; validate input against any filter by name.
 
-<br/>
-Mail: tidharwin@gmail.com
-<br/>
-Linkedin: https://www.linkedin.com/in/tidharw/
+Part of a three-package JQL-inspired filtering toolkit. The companion parser lives in [QueryLanguage](https://github.com/tedwin007/QueryLanguage).
 
-# Filter Manger 
+---
 
-provide a uniform way to manage your application validations and fillers.
-- Validations can be saved in a File/In-memory/DB
-- All Validations must maintain the ```IRawFilter``` interface ( ```{ [Filter Name]: [Rules] }``` )
-- This package can be wrap as a npm package and can be used both in the client (js/angular/react/etc..) and on a node server
-- Client: you will probably want to get the filters "Raw data" from the server/instantiate the filters in-memory
-- Server: You can load the filters from files (have access to the fs) / fetch it from the DB
+## Why
 
-! Mange the filters in the server 
-  Fetch the filters using a request to BE and 
-  Use the package in both to instantiate the filters
+Applications tend to accumulate validation logic everywhere — regexes scattered across forms, duplicate rules on the client and the server, validations that drift apart over time. This library gives you a single runtime registry for those rules: each filter has a name, a set of rules, and an `isValid(input)` method. The registry can be loaded from wherever the rules live (a JSON file, an API response, an in-memory seed) and serialized back out.
 
-## Dev
-- to wrap as a npm package use ```npm run build```
-  (don't forget to bump if needed)
-- to run in "dev" mode with file watch use ```npm run dev```
-- to re-build the docs run ```npm run doc```
-- "main" folder containing the transpiled files
-- development is done on files in```/src/lib```
-- some example filters can be found in ```/src/lib/assets/filters```
+The same package works in browser and Node contexts — the client fetches raw filter definitions from the server, instantiates them in-memory, and validates user input against the shared source of truth.
+
+## Install
+
+```bash
+npm install
+npm run build
+```
+
+Packaging to npm is supported via `npm run build` (see [Development](#development)).
+
+## Usage
+
+### Load filters from a file
 
 ```ts
+import { readFileSync } from 'fs';
+import { FilterManager } from './lib/filter-manager';
 
-// Loading the filters from a *.json file 
-const path = __dirname + '/lib/assets/'
-let filleName = 'filters.json'
-let data: any = readFileSync(path + filleName)
-data = JSON.parse(data.toString())
-// Instantiating the FilterManger
-const FM: FilterManger = new FilterManger(data);
-// Listing the filters name
-console.log('Listing the filters name: getFiltersList() ', FM.getFiltersList());
-// In-memory filter, ready to be used
-const numbersOnly = FM.getFilterByName('numbersOnly')
-const includesNumbers = FM.getFilterByName('includesNumbers')
+const raw = JSON.parse(readFileSync(__dirname + '/lib/assets/filters.json', 'utf-8'));
+const fm = new FilterManager(raw);
 
-// Validating different inputs against the  
-console.log('numbersOnly');
-console.log(numbersOnly?.isValid("2")); // true  
-console.log(numbersOnly?.isValid("2Be")); // false
-console.log(numbersOnly?.isValid("0rN0t "));// false
-console.log('includesNumbers');
-console.log(includesNumbers?.isValid('abc'));
-console.log(includesNumbers?.isValid('abc5'));
-
-// Add new filter (In-memory) 
-FM.addFilter('hostName', ["^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-ֿֿֿֿֿֿ_]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-_]*[A-Za-z0-9])$"])
-console.log('hostName is now available: getFiltersList() ', FM.getFiltersList());
-const hostName = FM.getFilterByName('hostName')
-console.log('hostName');
-console.log(hostName?.isValid('b.com')); // true 
-console.log(hostName?.isValid('b.%com')); // false
-
-// Remove filter 
-console.log("Remove 'hostName' filter ");
-console.log(FM.removeFilter('hostName')); // true 
-console.log(FM.removeFilter('hostName')); // false -> What was removed can be removed
-
-// Getting the most updated filter's list in a (stringify) json format
-console.log("Getting the most updated filter's list in a (stringify) json format ", FM.stringify());
-// Updating / Creating filters file
-// writeFileSync(path + 'filtersV2.json', FM.stringify(), 'utf-8');
-
-// Revert
-console.log("Restore the filters to their original sate (in-memory) ");
-FM.addFilter('isTeddy', ["/bear/gm"])
-console.log('Adding "isTeddy" filter', FM.getFiltersList());
-FM.addFilter('isWienreb', ["/Wienreb/gm"])
-console.log('Adding "isWienreb" filter', FM.getFiltersList());
-FM.revert()
-console.log('After revert() ', FM.getFiltersList());
+fm.getFiltersList(); // ['numbersOnly', 'includesNumbers', ...]
 ```
+
+### Validate input
+
+```ts
+const numbersOnly = fm.getFilterByName('numbersOnly');
+
+numbersOnly?.isValid('2');       // true
+numbersOnly?.isValid('2Be');     // false
+numbersOnly?.isValid('0rN0t ');  // false
+```
+
+### Add and remove filters at runtime
+
+```ts
+fm.addFilter('hostName', [
+  '^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-_]*[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-_]*[A-Za-z0-9])$'
+]);
+
+const hostName = fm.getFilterByName('hostName');
+hostName?.isValid('b.com');   // true
+hostName?.isValid('b.%com');  // false
+
+fm.removeFilter('hostName');  // true  — first removal succeeds
+fm.removeFilter('hostName');  // false — already gone
+```
+
+### Persist the current state
+
+```ts
+import { writeFileSync } from 'fs';
+
+writeFileSync('filters.v2.json', fm.stringify(), 'utf-8');
+```
+
+### Revert to the initial state
+
+```ts
+fm.addFilter('temp', ['/bear/gm']);
+fm.addFilter('another', ['/Wienreb/gm']);
+
+fm.revert();  // restores the filter set to what was passed to the constructor
+```
+
+## API
+
+| Method | Description |
+| --- | --- |
+| `new FilterManager(raw)` | Construct from an `IRawFilter` object: `{ [name]: rules }` |
+| `getFiltersList()` | Returns the names of all registered filters |
+| `getFilterByName(name)` | Returns a filter instance with `isValid(input)`, or `undefined` |
+| `addFilter(name, rules)` | Registers a new filter at runtime |
+| `removeFilter(name)` | Removes a filter; returns `true` if it existed, `false` otherwise |
+| `stringify()` | Serializes the current filter set to JSON |
+| `revert()` | Restores the filter set to its initial state |
+
+## Filter format
+
+Filters are declared as `{ [name]: rules[] }`. Rules are pattern strings that the filter evaluates against input via `isValid`.
+
+Example filter file:
+
+```json
+{
+  "numbersOnly": ["^\\d+$"],
+  "includesNumbers": ["\\d"]
+}
+```
+
+## Development
+
+```bash
+npm install
+npm run dev    # watch mode
+npm run build  # build for publishing
+npm run doc    # regenerate TypeDoc output
+npm test       # run Jasmine suite
+```
+
+- Source lives in `/src/lib`
+- Example filters in `/src/lib/assets/filters`
+- Built output goes to `/main`
+
+## Status
+
+Personal project. Foundational package of a three-library filtering toolkit; the companion parser is [QueryLanguage](https://github.com/tedwin007/QueryLanguage).
+
+## License
+
+MIT
